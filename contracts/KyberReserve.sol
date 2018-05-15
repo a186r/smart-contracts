@@ -140,7 +140,7 @@ contract KyberReserve is KyberReserveInterface, Withdrawable, Utils {
     function getSrcQty(ERC20 src, ERC20 dest, uint dstQty, uint rate) public view returns(uint) {
         uint dstDecimals = getDecimals(dest);
         uint srcDecimals = getDecimals(src);
-
+ 
         return calcSrcQty(dstQty, srcDecimals, dstDecimals, rate);
     }
 
