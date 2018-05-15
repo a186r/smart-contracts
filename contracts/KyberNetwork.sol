@@ -13,6 +13,7 @@ import "./FeeBurnerInterface.sol";
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @title Kyber Network main contract
+
 contract KyberNetwork is Withdrawable, Utils {
 
     uint public negligibleRateDiff = 10; // basic rate steps will be in 0.01%
@@ -52,6 +53,7 @@ contract KyberNetwork is Withdrawable, Utils {
     /// @param minConversionRate The minimal conversion rate. If actual rate is lower, trade is canceled.
     /// @param walletId is the wallet ID to send part of the fees
     /// @return amount of actual dest tokens
+    // 使用src Token交换dest Token
     function trade(
         ERC20 src,
         uint srcAmount,
@@ -77,6 +79,7 @@ contract KyberNetwork is Withdrawable, Utils {
             userSrcBalanceBefore += msg.value;
         userDestBalanceBefore = getBalance(dest, destAddress);
 
+// 执行交易
         uint actualDestAmount = doTrade(src,
                                         srcAmount,
                                         dest,
@@ -85,6 +88,8 @@ contract KyberNetwork is Withdrawable, Utils {
                                         minConversionRate,
                                         walletId
                                         );
+
+// 执行交易之后做判断，然后才能return actualDestAmount
         require(actualDestAmount > 0);
 
         userSrcBalanceAfter = getBalance(src, msg.sender);
@@ -215,6 +220,8 @@ contract KyberNetwork is Withdrawable, Utils {
     /// @param src Src token
     /// @param dest Destination token
     /* solhint-disable code-complexity */
+
+    // 寻找最佳的利率，如果差距很小或者完全相同，就随机选择一个
     function findBestRate(ERC20 src, ERC20 dest, uint srcQty) public view returns(uint, uint) {
         uint bestRate = 0;
         uint bestReserve = 0;
@@ -225,12 +232,14 @@ contract KyberNetwork is Withdrawable, Utils {
 
         for (uint i = 0; i < numReserves; i++) {
             //list all reserves that have this token.
+            // 列出所有有这个Token的储备库
             if (!(perReserveListedPairs[reserves[i]])[keccak256(src, dest)]) continue;
 
             rates[i] = reserves[i].getConversionRate(src, dest, srcQty, block.number);
 
             if (rates[i] > bestRate) {
                 //best rate is highest rate
+                // 保留最高转换率
                 bestRate = rates[i];
             }
         }
@@ -247,6 +256,7 @@ contract KyberNetwork is Withdrawable, Utils {
 
             if (numRelevantReserves > 1) {
                 //when encountering small rate diff from bestRate. draw from relevant reserves
+                // 不同的储备库给出的兑换比例接近，就随机选择一个
                 random = uint(block.blockhash(block.number-1)) % numRelevantReserves;
             }
 
@@ -254,6 +264,7 @@ contract KyberNetwork is Withdrawable, Utils {
             bestRate = rates[bestReserve];
         }
 
+// 返回最佳比率和其储备库。
         return (bestReserve, bestRate);
     }
     /* solhint-enable code-complexity */
@@ -266,10 +277,12 @@ contract KyberNetwork is Withdrawable, Utils {
         return expectedRateContract.getExpectedRate(src, dest, srcQty);
     }
 
+// 获取用户可支付的上限
     function getUserCapInWei(address user) public view returns(uint) {
         return whiteListContract.getUserCapInWei(user);
     }
 
+// 执行交易
     function doTrade(
         ERC20 src,
         uint srcAmount,
@@ -283,12 +296,16 @@ contract KyberNetwork is Withdrawable, Utils {
         returns(uint)
     {
         require(tx.gasprice <= maxGasPrice);
+
+        // 交易之前的检查
         require(validateTradeInput(src, srcAmount, destAddress));
 
         uint reserveInd;
         uint rate;
 
+        //寻找最佳汇率，获取到最佳汇率及其提供商
         (reserveInd, rate) = findBestRate(src, dest, srcAmount);
+        
         KyberReserveInterface theReserve = reserves[reserveInd];
         require(rate > 0);
         require(rate < MAX_RATE);
@@ -304,6 +321,7 @@ contract KyberNetwork is Withdrawable, Utils {
 
         // do the trade
         // verify trade size is smaller than user cap
+        // 验证交易规模小于用户所能支付的上限
         uint ethAmount;
         if (src == ETH_TOKEN_ADDRESS) {
             ethAmount = actualSrcAmount;
@@ -328,6 +346,7 @@ contract KyberNetwork is Withdrawable, Utils {
 
         require(feeBurnerContract.handleFees(ethAmount, theReserve, walletId));
 
+// 最终执行交易
         ExecuteTrade(msg.sender, src, dest, actualSrcAmount, actualDestAmount);
         return actualDestAmount;
     }
@@ -341,6 +360,8 @@ contract KyberNetwork is Withdrawable, Utils {
     /// @param reserve Reserve to use
     /// @param validate If true, additional validations are applicable
     /// @return true if trade is successful
+
+    // 与储备商交易
     function doReserveTrade(
         ERC20 src,
         uint amount,
@@ -359,11 +380,13 @@ contract KyberNetwork is Withdrawable, Utils {
         if (src == ETH_TOKEN_ADDRESS) {
             callValue = amount;
         } else {
+            //发送src token到这个合约
             // take src tokens to this contract
             src.transferFrom(msg.sender, this, amount);
         }
 
         // reserve sends tokens/eth to network. network sends it to destination
+        // 储备库发送tokens到网络，网络将它发送到交易人
         require(reserve.trade.value(callValue)(src, amount, dest, this, conversionRate, validate));
 
         if (dest == ETH_TOKEN_ADDRESS) {
@@ -388,6 +411,7 @@ contract KyberNetwork is Withdrawable, Utils {
     /// @param src Src token
     /// @param srcAmount amount of src tokens
     /// @return true if input is valid
+    // 交易之前检查用户发送的交易
     function validateTradeInput(ERC20 src, uint srcAmount, address destAddress) internal view returns(bool) {
         if ((srcAmount >= MAX_QTY) || (srcAmount == 0) || (destAddress == 0))
             return false;
